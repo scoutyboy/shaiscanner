@@ -1,7 +1,8 @@
 
-import requests
 import sys
 import json
+import requests
+from datetime import datetime
 
 def load_config(config_path="config.json"):
     try:
@@ -20,15 +21,19 @@ def scan_repositories(username, target_user, search_terms, token):
         'User-Agent': username
     }
 
-    print(f"\nScanning {target_user}'s repositories for descriptions containing any of {search_terms}...")
+    log_messages = []
+    log_messages.append(f"Scanning {target_user}'s repositories for descriptions containing any of {search_terms}...")
+    print(f"\n{log_messages[-1]}")
 
     while True:
         url = f'https://api.github.com/users/{target_user}/repos?type=public&page={page}'
         response = requests.get(url, headers=headers)
 
         if response.status_code != 200:
-            print(f"Error: Could not fetch repositories for {target_user}. Status code: {response.status_code}")
-            return
+            error_msg = f"Error: Could not fetch repositories for {target_user}. Status code: {response.status_code}"
+            print(error_msg)
+            log_messages.append(error_msg)
+            return found_repos, log_messages
 
         repos = response.json()
         if not repos:
@@ -42,20 +47,33 @@ def scan_repositories(username, target_user, search_terms, token):
         page += 1
 
     if found_repos:
-        print("\nFound matches in the following repositories:")
+        success_msg = "Found matches in the following repositories:"
+        print(f"\n{success_msg}")
+        log_messages.append(success_msg)
         for repo_url in found_repos:
             print(f"- {repo_url}")
+            log_messages.append(f"- {repo_url}")
     else:
-        print("\nNo repositories matched the search terms.")
+        no_match_msg = "No repositories matched the search terms."
+        print(f"\n{no_match_msg}")
+        log_messages.append(no_match_msg)
+
+    return found_repos, log_messages
+
+def write_results(filename, username_logs, affected_count):
+    with open(filename, 'w') as f:
+        for user, logs in username_logs.items():
+            for line in logs:
+                f.write(line + "\n")
+            f.write("\n")
+        f.write(f"Total affected users: {affected_count}\n")
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python script.py <target_username>")
+        print("Usage: python scanner.py <target_username> OR python scanner.py -f <file_with_usernames>")
         sys.exit(1)
 
-    target_user = sys.argv[1]
     config = load_config()
-
     username = config.get("username")
     token = config.get("token")
     search_terms = config.get("search_terms")
@@ -69,12 +87,46 @@ def main():
     headers = {'Authorization': f'token {token}', 'User-Agent': username}
     response = requests.get(auth_check_url, headers=headers)
 
-    if response.status_code == 200:
-        print(f"\nSuccessfully authenticated.")
-        scan_repositories(username, target_user, search_terms, token)
-    else:
+    if response.status_code != 200:
         print(f"\nAuthentication failed. Status code: {response.status_code}")
         sys.exit(1)
+
+    print("\nSuccessfully authenticated.")
+
+    affected_count = 0
+
+    if sys.argv[1] == '-f':
+        if len(sys.argv) < 3:
+            print("Error: Missing file path after -f flag.")
+            sys.exit(1)
+        file_path = sys.argv[2]
+        try:
+            with open(file_path, 'r') as f:
+                target_users = [line.strip() for line in f if line.strip()]
+        except FileNotFoundError:
+            print(f"Error: File '{file_path}' not found.")
+            sys.exit(1)
+
+        output_filename = f"github-multi-scan-results{datetime.now().strftime('%Y-%m-%d')}.txt"
+        username_logs = {}
+        for user in target_users:
+            repos, logs = scan_repositories(username, user, search_terms, token)
+            username_logs[user] = logs
+            if repos:
+                affected_count += 1
+        write_results(output_filename, username_logs, affected_count)
+        print(f"\nTotal affected users: {affected_count}")
+        print(f"All results saved to {output_filename}")
+
+    else:
+        target_user = sys.argv[1]
+        repos, logs = scan_repositories(username, target_user, search_terms, token)
+        if repos:
+            affected_count = 1
+        output_filename = f"github-{target_user}-scan-results{datetime.now().strftime('%Y-%m-%d')}.txt"
+        write_results(output_filename, {target_user: logs}, affected_count)
+        print(f"\nTotal affected users: {affected_count}")
+        print(f"Results saved to {output_filename}")
 
 if __name__ == "__main__":
     main()
