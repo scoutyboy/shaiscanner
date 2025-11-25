@@ -60,13 +60,14 @@ def scan_repositories(username, target_user, search_terms, token):
 
     return found_repos, log_messages
 
-def write_results(filename, username_logs, affected_count):
+def write_results(filename, username_logs, affected_count, affected_users):
     with open(filename, 'w') as f:
         for user, logs in username_logs.items():
             for line in logs:
                 f.write(line + "\n")
             f.write("\n")
         f.write(f"Total affected users: {affected_count}\n")
+        f.write(f"Affected users: {', '.join(affected_users) if affected_users else 'None'}\n")
 
 def main():
     if len(sys.argv) < 2:
@@ -94,6 +95,7 @@ def main():
     print("\nSuccessfully authenticated.")
 
     affected_count = 0
+    affected_users = []
 
     if sys.argv[1] == '-f':
         if len(sys.argv) < 3:
@@ -114,8 +116,10 @@ def main():
             username_logs[user] = logs
             if repos:
                 affected_count += 1
-        write_results(output_filename, username_logs, affected_count)
+                affected_users.append(user)
+        write_results(output_filename, username_logs, affected_count, affected_users)
         print(f"\nTotal affected users: {affected_count}")
+        print(f"Affected users: {', '.join(affected_users) if affected_users else 'None'}")
         print(f"All results saved to {output_filename}")
 
     else:
@@ -123,9 +127,11 @@ def main():
         repos, logs = scan_repositories(username, target_user, search_terms, token)
         if repos:
             affected_count = 1
+            affected_users.append(target_user)
         output_filename = f"github-{target_user}-scan-results{datetime.now().strftime('%Y-%m-%d')}.txt"
-        write_results(output_filename, {target_user: logs}, affected_count)
+        write_results(output_filename, {target_user: logs}, affected_count, affected_users)
         print(f"\nTotal affected users: {affected_count}")
+        print(f"Affected users: {', '.join(affected_users) if affected_users else 'None'}")
         print(f"Results saved to {output_filename}")
 
 if __name__ == "__main__":
