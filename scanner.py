@@ -1,25 +1,26 @@
+
 import requests
 import sys
+import json
 
-def scan_repositories(username, target_user, search_string, token):
-    """
-    Scans a target user's public repositories for a specific string in their descriptions.
-    
-    Args:
-        username (str): The authenticated user's GitHub username.
-        target_user (str): The username of the user whose repos will be scanned.
-        search_string (str): The string to search for in repository descriptions.
-        token (str): The GitHub Personal Access Token for authentication.
-    """
+def load_config(config_path="config.json"):
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Config file '{config_path}' not found.")
+        sys.exit(1)
+
+def scan_repositories(username, target_user, search_terms, token):
     page = 1
     found_repos = []
     headers = {
         'Authorization': f'token {token}',
         'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': username # GitHub API requires a User-Agent header
+        'User-Agent': username
     }
 
-    print(f"\nScanning {target_user}'s repositories for descriptions containing '{search_string}'...")
+    print(f"\nScanning {target_user}'s repositories for descriptions containing any of {search_terms}...")
 
     while True:
         url = f'https://api.github.com/users/{target_user}/repos?type=public&page={page}'
@@ -27,59 +28,53 @@ def scan_repositories(username, target_user, search_string, token):
 
         if response.status_code != 200:
             print(f"Error: Could not fetch repositories for {target_user}. Status code: {response.status_code}")
-            print(response.json())
             return
 
         repos = response.json()
         if not repos:
-            break # No more repositories to check
+            break
 
         for repo in repos:
-            description = repo.get('description')
-            if description and search_string.lower() in description.lower():
+            description = repo.get('description') or ""
+            if any(term.lower() in description.lower() for term in search_terms):
                 found_repos.append(repo['html_url'])
 
         page += 1
 
     if found_repos:
-        print(f"\nFound the string '{search_string}' in the following repository descriptions:")
+        print("\nFound matches in the following repositories:")
         for repo_url in found_repos:
             print(f"- {repo_url}")
     else:
-        print(f"\nNo repositories found with the string '{search_string}' in their descriptions.")
+        print("\nNo repositories matched the search terms.")
 
 def main():
-    """
-    Main function to handle user input and authentication.
-    """
-    print("GitHub Repository Scanner CLI")
-    print("-" * 30)
-
-    username = input("Enter your GitHub username (for API User-Agent): ").strip()
-    token = input("Enter your GitHub Personal Access Token (PAT): ").strip()
-    target_user = input("Enter the target GitHub username to scan: ").strip()
-    search_string = input("Enter the string to search for in descriptions: ").strip()
-
-    if not all([username, token, target_user, search_string]):
-        print("Error: All fields are required.")
+    if len(sys.argv) < 2:
+        print("Usage: python script.py <target_username>")
         sys.exit(1)
 
-    # Simple authentication check (verify the token works)
+    target_user = sys.argv[1]
+    config = load_config()
+
+    username = config.get("username")
+    token = config.get("token")
+    search_terms = config.get("search_terms")
+
+    if not all([username, token, search_terms]):
+        print("Error: Missing required fields in config file.")
+        sys.exit(1)
+
+    # Authentication check
     auth_check_url = 'https://api.github.com/user'
     headers = {'Authorization': f'token {token}', 'User-Agent': username}
     response = requests.get(auth_check_url, headers=headers)
 
     if response.status_code == 200:
-        print(f"\nSuccessfully authenticated as {response.json()['login']}.")
-        scan_repositories(username, target_user, search_string, token)
+        print(f"\nSuccessfully authenticated.")
+        scan_repositories(username, target_user, search_terms, token)
     else:
         print(f"\nAuthentication failed. Status code: {response.status_code}")
-        print("Please check your username and PAT.")
         sys.exit(1)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nProgram interrupted by user. Exiting.")
-        sys.exit(0)
+    main()
